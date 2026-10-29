@@ -1,0 +1,538 @@
+// Modèle de données ExamPrepa CI
+// Référentiel pays → examen → série → matière : prêt pour l'extension UEMOA.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+}
+
+enum ContentStatus {
+  DRAFT
+  REVIEW
+  PUBLISHED
+}
+
+enum ItemType {
+  MCQ
+  NUMERIC
+  OPEN
+}
+
+enum AssessmentType {
+  CHAPTER_EXAM
+  MOCK_EXAM
+  PAST_PAPER
+  CLASS_ASSIGNMENT
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum ChallengeStatus {
+  PENDING
+  DONE
+  EXPIRED
+  DECLINED
+}
+
+enum AttemptStatus {
+  SUBMITTED
+  GRADED
+}
+
+enum OtpPurpose {
+  REGISTER
+  RESET
+}
+
+// ───────────── Référentiel pédagogique ─────────────
+
+model Country {
+  id       Int       @id @default(autoincrement())
+  code     String    @unique
+  name     String
+  currency String    @default("XOF")
+  exams    Exam[]
+  subjects Subject[]
+}
+
+model Exam {
+  id         Int              @id @default(autoincrement())
+  countryId  Int
+  country    Country          @relation(fields: [countryId], references: [id])
+  code       String
+  name       String
+  gradeLevel String
+  series     Series[]
+  chapters   Chapter[]
+  students   StudentProfile[]
+  assessments Assessment[]
+  classrooms Classroom[]
+  plans      Plan[]
+
+  @@unique([countryId, code])
+}
+
+model Series {
+  id       Int              @id @default(autoincrement())
+  examId   Int
+  exam     Exam             @relation(fields: [examId], references: [id])
+  code     String
+  name     String
+  subjects SeriesSubject[]
+  students StudentProfile[]
+
+  @@unique([examId, code])
+}
+
+model Subject {
+  id        Int             @id @default(autoincrement())
+  countryId Int
+  country   Country         @relation(fields: [countryId], references: [id])
+  code      String
+  name      String
+  icon      String
+  color     String
+  chapters  Chapter[]
+  series    SeriesSubject[]
+  assessments Assessment[]
+  challenges  Challenge[]
+
+  @@unique([countryId, code])
+}
+
+model SeriesSubject {
+  seriesId        Int
+  subjectId       Int
+  series          Series  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  subject         Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  coefficient     Int     @default(1)
+  examDurationMin Int     @default(120)
+
+  @@id([seriesId, subjectId])
+}
+
+// ───────────── Utilisateurs ─────────────
+
+model User {
+  id           String            @id @default(uuid())
+  role         Role              @default(STUDENT)
+  status       UserStatus        @default(ACTIVE)
+  /// Facultatif : un compte créé avec Google n'a pas forcément de numéro.
+  phone        String?           @unique
+  email        String?           @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  createdAt    DateTime          @default(now())
+  lastSeenAt   DateTime?
+  student      StudentProfile?
+  teacher      TeacherProfile?
+  attempts     Attempt[]         @relation("StudentAttempts")
+  graded       Attempt[]         @relation("GradedAttempts")
+  progress     ChapterProgress[]
+  quizResults  QuizResult[]
+  badges       UserBadge[]
+  googleSub    String?           @unique
+  locale       String            @default("fr")
+  classrooms   Classroom[]       @relation("ClassTeacher")
+  memberships  ClassMember[]
+  sentMessages Message[]         @relation("MessageFrom")
+  inbox        Message[]         @relation("MessageTo")
+  subscriptions Subscription[]
+  payments     Payment[]
+  challengesSent     Challenge[] @relation("Challenger")
+  challengesReceived Challenge[] @relation("Opponent")
+  pushSubscriptions  PushSubscription[]
+  authoredAssessments Assessment[] @relation("AssessmentAuthor")
+}
+
+model StudentProfile {
+  userId        String  @id
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  examId        Int
+  exam          Exam    @relation(fields: [examId], references: [id])
+  seriesId      Int
+  series        Series  @relation(fields: [seriesId], references: [id])
+  schoolName    String?
+  city          String?
+  examYear      Int
+  targetAverage Float   @default(12)
+  parentPhone   String?
+  /// Dernier plan de révision généré (IA ou règles) et sa date.
+  aiPlan        Json?
+  aiPlanAt      DateTime?
+}
+
+model TeacherProfile {
+  userId      String    @id
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schoolName  String?
+  subjects    String[]
+  validatedAt DateTime?
+}
+
+// ───────────── Contenus ─────────────
+
+model Chapter {
+  id               Int               @id @default(autoincrement())
+  subjectId        Int
+  subject          Subject           @relation(fields: [subjectId], references: [id])
+  examId           Int
+  exam             Exam              @relation(fields: [examId], references: [id])
+  orderIndex       Int
+  title            String
+  objectives       String[]
+  estimatedMinutes Int               @default(60)
+  isFree           Boolean           @default(false)
+  status           ContentStatus     @default(DRAFT)
+  version          Int               @default(1)
+  courseMd         String            @default("")
+  summaryMd        String            @default("")
+  officialRef      String?
+  /// Séries concernées (codes, ex. ["C", "D"]). Vide : toutes les séries de l'examen.
+  seriesCodes      String[]          @default([])
+  /// Relecture pédagogique : tant que ce champ est vide, l'élève voit un avertissement.
+  validatedAt      DateTime?
+  validatedById    String?
+  updatedAt        DateTime          @updatedAt
+  questions        Question[]
+  assessments      Assessment[]
+  progress         ChapterProgress[]
+  quizResults      QuizResult[]
+
+  @@index([subjectId, examId, orderIndex])
+}
+
+/// Question de cours (quiz formatif) : la réponse est livrée au client pour la correction immédiate hors ligne.
+model Question {
+  id          Int      @id @default(autoincrement())
+  chapterId   Int
+  chapter     Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  orderIndex  Int
+  type        ItemType
+  prompt      String
+  choices     String[]
+  /// MCQ: {index} · NUMERIC: {value, tolerance?} · OPEN: {model, keywords[]}
+  answer      Json
+  explanation String   @default("")
+}
+
+/// Devoir noté : les clés de réponse ne quittent jamais le serveur avant la remise.
+model Assessment {
+  id           Int              @id @default(autoincrement())
+  chapterId    Int?
+  chapter      Chapter?         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  type         AssessmentType   @default(CHAPTER_EXAM)
+  title        String
+  instructions String           @default("")
+  advice       String           @default("")
+  durationMin  Int
+  totalPoints  Float            @default(20)
+  passMark     Float            @default(10)
+  blocksNext   Boolean          @default(false)
+  status       ContentStatus    @default(PUBLISHED)
+  /// Examens blancs, annales et devoirs de classe ne sont pas rattachés à un chapitre.
+  subjectId    Int?
+  subject      Subject?         @relation(fields: [subjectId], references: [id])
+  examId       Int?
+  exam         Exam?            @relation(fields: [examId], references: [id])
+  authorId     String?
+  author       User?            @relation("AssessmentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  classroomId  Int?
+  classroom    Classroom?       @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  dueAt        DateTime?
+  /// Annales : année et session de l'examen
+  year         Int?
+  createdAt    DateTime         @default(now())
+  items        AssessmentItem[]
+  attempts     Attempt[]
+
+  @@index([subjectId, type])
+}
+
+model AssessmentItem {
+  id           Int        @id @default(autoincrement())
+  assessmentId Int
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  orderIndex   Int
+  section      String
+  sectionIntro String?
+  prompt       String
+  type         ItemType
+  choices      String[]
+  answer       Json
+  points       Float
+  /// NUMERIC : points attribués automatiquement au résultat exact ; le reste (justification) est corrigé par l'enseignant.
+  resultPoints Float      @default(0)
+  correction   String     @default("")
+  answers      Answer[]
+}
+
+// ───────────── Évaluations et progression ─────────────
+
+model Attempt {
+  /// UUID généré par le client : permet la remise hors ligne idempotente.
+  id             String        @id
+  userId         String
+  user           User          @relation("StudentAttempts", fields: [userId], references: [id], onDelete: Cascade)
+  assessmentId   Int
+  assessment     Assessment    @relation(fields: [assessmentId], references: [id])
+  /// Seule la première copie compte dans les moyennes ; les suivantes sont de l'entraînement.
+  isOfficial     Boolean       @default(true)
+  startedAt      DateTime
+  submittedAt    DateTime
+  receivedAt     DateTime      @default(now())
+  timeSpentS     Int
+  late           Boolean       @default(false)
+  status         AttemptStatus
+  autoScore      Float
+  finalScore     Float?
+  teacherComment String?
+  gradedById     String?
+  gradedBy       User?         @relation("GradedAttempts", fields: [gradedById], references: [id])
+  gradedAt       DateTime?
+  answers        Answer[]
+
+  @@index([userId, assessmentId])
+  @@index([status])
+}
+
+model Answer {
+  id           Int            @id @default(autoincrement())
+  attemptId    String
+  attempt      Attempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  itemId       Int
+  item         AssessmentItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  response     Json?
+  photoUrl     String?
+  isCorrect    Boolean?
+  autoPoints   Float          @default(0)
+  needsManual  Boolean        @default(false)
+  /// Note totale de l'item fixée par l'enseignant (remplace autoPoints).
+  manualPoints Float?
+  comment      String?
+
+  @@unique([attemptId, itemId])
+}
+
+model ChapterProgress {
+  userId      String
+  chapterId   Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter     Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  courseDone  Boolean  @default(false)
+  summaryDone Boolean  @default(false)
+  /// Meilleur score au quiz, en pourcentage
+  quizBest    Float?
+  /// Meilleure note au devoir (sur 20)
+  examBest    Float?
+  updatedAt   DateTime @updatedAt
+
+  @@id([userId, chapterId])
+}
+
+model QuizResult {
+  id        String   @id
+  userId    String
+  chapterId Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  score     Int
+  total     Int
+  createdAt DateTime @default(now())
+}
+
+model UserBadge {
+  userId   String
+  code     String
+  earnedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, code])
+}
+
+// ───────────── Système ─────────────
+
+model OtpCode {
+  id        Int        @id @default(autoincrement())
+  phone     String
+  purpose   OtpPurpose
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int        @default(0)
+  consumed  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  @@index([phone, purpose])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  data      Json?
+  createdAt DateTime @default(now())
+}
+
+// ───────────── Classes, annonces, messagerie ─────────────
+
+model Classroom {
+  id            Int            @id @default(autoincrement())
+  name          String
+  /// Code à 6 caractères que l'enseignant communique à ses élèves pour qu'ils rejoignent la classe.
+  code          String         @unique
+  schoolName    String?
+  teacherId     String
+  teacher       User           @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  examId        Int
+  exam          Exam           @relation(fields: [examId], references: [id])
+  archived      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  members       ClassMember[]
+  announcements Announcement[]
+  assessments   Assessment[]
+}
+
+model ClassMember {
+  classroomId Int
+  userId      String
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime  @default(now())
+
+  @@id([classroomId, userId])
+}
+
+model Announcement {
+  id          Int       @id @default(autoincrement())
+  classroomId Int
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  authorId    String
+  body        String
+  createdAt   DateTime  @default(now())
+}
+
+model Message {
+  id         Int       @id @default(autoincrement())
+  fromId     String
+  from       User      @relation("MessageFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId       String
+  to         User      @relation("MessageTo", fields: [toId], references: [id], onDelete: Cascade)
+  body       String
+  readAt     DateTime?
+  /// Modération : message signalé par son destinataire
+  flaggedAt  DateTime?
+  flagReason String?
+  hiddenAt   DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([fromId, toId])
+  @@index([toId, readAt])
+}
+
+// ───────────── Abonnements et paiements ─────────────
+
+model Plan {
+  id           Int            @id @default(autoincrement())
+  code         String         @unique
+  name         String
+  description  String         @default("")
+  priceXof     Int
+  durationDays Int
+  /// null : valable pour tous les examens
+  examId       Int?
+  exam         Exam?          @relation(fields: [examId], references: [id])
+  active       Boolean        @default(true)
+  subscriptions Subscription[]
+  payments     Payment[]
+}
+
+model Subscription {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId    Int
+  plan      Plan     @relation(fields: [planId], references: [id])
+  startsAt  DateTime
+  endsAt    DateTime
+  paymentId String?  @unique
+  createdAt DateTime @default(now())
+
+  @@index([userId, endsAt])
+}
+
+model Payment {
+  /// Identifiant de transaction transmis à l'agrégateur
+  id          String        @id
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      Int
+  plan        Plan          @relation(fields: [planId], references: [id])
+  amountXof   Int
+  provider    String
+  channel     String?
+  status      PaymentStatus @default(PENDING)
+  providerRef String?
+  raw         Json?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([userId, status])
+}
+
+// ───────────── Mode Combat ─────────────
+
+model Challenge {
+  id              String          @id
+  challengerId    String
+  challenger      User            @relation("Challenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  opponentId      String
+  opponent        User            @relation("Opponent", fields: [opponentId], references: [id], onDelete: Cascade)
+  subjectId       Int
+  subject         Subject         @relation(fields: [subjectId], references: [id])
+  questionIds     Int[]
+  challengerScore Int?
+  opponentScore   Int?
+  challengerTimeS Int?
+  opponentTimeS   Int?
+  status          ChallengeStatus @default(PENDING)
+  expiresAt       DateTime
+  createdAt       DateTime        @default(now())
+
+  @@index([opponentId, status])
+  @@index([challengerId, status])
+}
+
+// ───────────── Notifications ─────────────
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}

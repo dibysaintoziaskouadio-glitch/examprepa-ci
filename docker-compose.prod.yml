@@ -1,0 +1,52 @@
+# Production : docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: examprepa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?mot de passe PostgreSQL requis}
+      POSTGRES_DB: examprepa
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U examprepa"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql://examprepa:${POSTGRES_PASSWORD}@db:5432/examprepa?schema=public
+      PORT: 4300
+      APP_URL: https://${DOMAIN}
+      API_PUBLIC_URL: https://${DOMAIN}
+      CORS_ORIGIN: https://${DOMAIN}
+      TRUST_PROXY: 2 # Caddy puis nginx
+    volumes:
+      - uploads:/app/uploads
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on: [api]
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?nom de domaine requis}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [web]
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:

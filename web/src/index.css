@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette inspirée du drapeau ivoirien. L'orange vif (#FF6B00) sert aux accents ;
+   les boutons utilisent une teinte plus foncée pour un contraste texte blanc ≥ 4,5:1. */
+:root {
+  color-scheme: light;
+  --bg: #fff8f2;
+  --surface: #ffffff;
+  --sunken: #f6eee6;
+  --ink: #1c1917;
+  --muted: #57534e;
+  --line: #e7dcd1;
+  --brand: #ff6b00;
+  --brand-strong: #b84a00;
+  --brand-soft: #ffe9d9;
+  --on-brand: #ffffff;
+  --ok: #007a3d;
+  --ok-soft: #dcf5e7;
+  --danger: #b91c1c;
+  --danger-soft: #fde2e2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #14110f;
+    --surface: #1f1b18;
+    --sunken: #2a2420;
+    --ink: #f5f0eb;
+    --muted: #bdb3aa;
+    --line: #3a322c;
+    --brand: #ff8a3d;
+    --brand-strong: #ff8a3d;
+    --brand-soft: #3d2614;
+    --on-brand: #1c1006;
+    --ok: #3ddc84;
+    --ok-soft: #15301f;
+    --danger: #f87171;
+    --danger-soft: #3b1717;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #14110f;
+  --surface: #1f1b18;
+  --sunken: #2a2420;
+  --ink: #f5f0eb;
+  --muted: #bdb3aa;
+  --line: #3a322c;
+  --brand: #ff8a3d;
+  --brand-strong: #ff8a3d;
+  --brand-soft: #3d2614;
+  --on-brand: #1c1006;
+  --ok: #3ddc84;
+  --ok-soft: #15301f;
+  --danger: #f87171;
+  --danger-soft: #3b1717;
+}
+
+html {
+  font-size: var(--font-size, 16px);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+  min-height: 100dvh;
+}
+
+/* Les mots très longs (allemand, termes techniques) ne doivent jamais élargir la page sur mobile. */
+h1,
+h2,
+h3,
+p,
+li,
+td,
+th,
+blockquote {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-line rounded-2xl p-4;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-[48px] font-bold transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand-strong text-on-brand;
+  }
+  .btn-ok {
+    @apply btn bg-ok text-on-brand;
+  }
+  .btn-ghost {
+    @apply btn bg-sunken text-ink;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-surface px-3 min-h-[48px] text-base text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-brand;
+  }
+  .label {
+    @apply block text-sm font-semibold mb-1;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold;
+  }
+}
+
+:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Contenu pédagogique rendu depuis le Markdown */
+.prose-ci {
+  @apply leading-relaxed;
+}
+.prose-ci h2 {
+  @apply text-xl font-extrabold mt-6 mb-2 text-brand-strong;
+}
+.prose-ci h3 {
+  @apply text-lg font-bold mt-4 mb-2;
+}
+.prose-ci p {
+  @apply my-2;
+}
+.prose-ci ul {
+  @apply list-disc pl-6 my-2 space-y-1;
+}
+.prose-ci ol {
+  @apply list-decimal pl-6 my-2 space-y-1;
+}
+.prose-ci blockquote {
+  @apply border-l-4 border-brand bg-brand-soft rounded-r-xl px-4 py-2 my-3;
+}
+.prose-ci table {
+  @apply w-full my-3 text-sm border-collapse block overflow-x-auto;
+}
+.prose-ci td,
+.prose-ci th {
+  @apply border border-line px-2 py-1.5 align-top;
+}
+.prose-ci strong {
+  @apply font-extrabold;
+}
+.prose-ci .figure {
+  @apply my-4 flex flex-col items-center text-center;
+}
+.prose-ci .figure svg {
+  @apply max-w-full h-auto;
+}
+.prose-ci figcaption {
+  @apply text-sm text-muted mt-1;
+}
+.prose-ci .katex-display {
+  @apply overflow-x-auto overflow-y-hidden py-1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

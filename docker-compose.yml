@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: examprepa
+      POSTGRES_PASSWORD: examprepa
+      POSTGRES_DB: examprepa
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U examprepa"]
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata:
